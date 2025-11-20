@@ -8,7 +8,6 @@ let particlePool = [];  // pool to reuse fragment particles
 
 let spawnTimer = 0;
 let spawnInterval = 40;
-let framesSinceMessage = 0;
 
 // control when to turn an explosion into the message
 let explosionsUntilMessage;
@@ -28,6 +27,10 @@ const SKY_ALPHA = 14;
 // 存储当前文字的中心位置
 let currentMessageCenterX = 0;
 let currentMessageCenterY = 0;
+
+// 文字状态管理 - 简化版本
+let messageDisplayStartTime = 0;
+let isMessageActive = false;
 
 // 先声明类
 class FragmentParticle {
@@ -72,12 +75,6 @@ class FragmentParticle {
     noStroke();
     fill(red(this.color), green(this.color), blue(this.color), this.alpha);
     circle(this.x, this.y, this.size);
-  }
-
-  toFragment() {
-    let f = new FragmentParticle();
-    f.reset(this.x, this.y, random(-3,3), random(-6, -1), this.color);
-    return f;
   }
 }
 
@@ -210,30 +207,15 @@ class MessageParticle {
   }
 
   drawToTarget() {
-    if (this.arrived && this.alpha > 0) {
+    if (this.alpha > 0) {
       noStroke();
       fill(red(this.col), green(this.col), blue(this.col), this.alpha);
       circle(this.x, this.y, this.size);
-    } else if (!this.arrived) {
-      // 移动过程中也绘制，但透明度较低
-      noStroke();
-      fill(red(this.col), green(this.col), blue(this.col), 100);
-      circle(this.x, this.y, this.size * 0.7);
     }
   }
 
   atTarget() {
     return this.arrived && this.alpha >= 255;
-  }
-
-  toFragment() {
-    let f = obtainFragment();
-    // 从文字位置向四周爆炸
-    let ang = random(TWO_PI);
-    let power = random(2, 8);
-    f.reset(this.x, this.y, cos(ang) * power, sin(ang) * power, this.col);
-    f.life = random(60, 120);
-    return f;
   }
 }
 
@@ -246,7 +228,7 @@ function setup() {
   textFont('Arial');
   explosionsUntilMessage = getRandomCountdown();
   
-  for (let i = 0; i < 500; i++) {
+  for (let i = 0; i < 300; i++) {
     particlePool.push(new FragmentParticle());
   }
 }
@@ -284,7 +266,6 @@ function draw() {
 
   if (msgParticles.length > 0) {
     let allAtTarget = true;
-    let allVisible = true;
     
     for (let p of msgParticles) {
       p.updateToTarget();
@@ -292,25 +273,93 @@ function draw() {
       if (!p.atTarget()) {
         allAtTarget = false;
       }
-      if (p.arrived && p.alpha < 255) {
-        allVisible = false;
-      }
     }
     
-    if (allAtTarget && allVisible) {
-      framesSinceMessage++;
-      if (framesSinceMessage > 180) {
-        // 文字消失时变成烟花爆炸效果
-        for (let p of msgParticles) {
-          fragments.push(p.toFragment());
-        }
+    if (allAtTarget) {
+      // 第一次所有粒子到达目标时，记录开始时间
+      if (!isMessageActive) {
+        isMessageActive = true;
+        messageDisplayStartTime = frameCount;
+        console.log("文字完全形成，开始3秒显示计时");
+      }
+      
+      // 计算文字完全形成后的时间
+      let displayTime = frameCount - messageDisplayStartTime;
+      
+      // 显示3秒后爆炸消失（180帧 ≈ 3秒）
+      if (displayTime > 180) {
+        console.log("3秒显示时间结束，立即爆炸消失");
+        // 立即创建爆炸效果并清空文字
+        createMassiveExplosion();
         msgParticles = [];
-        framesSinceMessage = 0;
+        isMessageActive = false;
         explosionsUntilMessage = getRandomCountdown();
       }
-    } else {
-      framesSinceMessage = 0;
     }
+  }
+}
+
+// 创建大规模爆炸效果
+function createMassiveExplosion() {
+  console.log("创建大规模爆炸效果");
+  
+  // 1. 为每个文字粒子位置创建爆炸
+  for (let p of msgParticles) {
+    createSmallExplosion(p.x, p.y, p.col);
+  }
+  
+  // 2. 在文字中心创建大爆炸
+  createLargeExplosion(currentMessageCenterX, currentMessageCenterY);
+  
+  // 3. 在文字周围创建额外爆炸点
+  for (let i = 0; i < 10; i++) {
+    let randomX = currentMessageCenterX + random(-width/3, width/3);
+    let randomY = currentMessageCenterY + random(-height/3, height/3);
+    createSmallExplosion(randomX, randomY, color(random(150,255), random(150,255), random(150,255)));
+  }
+}
+
+// 创建小爆炸（10-20个粒子）
+function createSmallExplosion(x, y, baseColor) {
+  let particleCount = floor(random(5, 10));
+  
+  for (let i = 0; i < particleCount; i++) {
+    let f = obtainFragment();
+    let ang = random(TWO_PI);
+    let power = random(2, 6);
+    
+    let explosionColor = color(
+      red(baseColor) + random(-30, 30),
+      green(baseColor) + random(-30, 30),
+      blue(baseColor) + random(-30, 30)
+    );
+    
+    f.reset(x, y, cos(ang) * power, sin(ang) * power, explosionColor);
+    f.life = random(60, 100);
+    f.size = random(2, 3);
+    fragments.push(f);
+  }
+}
+
+// 创建大爆炸（100-150个粒子）
+function createLargeExplosion(x, y) {
+  let particleCount = floor(random(50, 100));
+  
+  for (let i = 0; i < particleCount; i++) {
+    let f = obtainFragment();
+    let ang = random(TWO_PI);
+    let power = random(3, 10);
+    
+    let explosionColor = color(
+      random(150, 255),
+      random(150, 255),
+      random(150, 255)
+    );
+    
+    f.reset(x, y, cos(ang) * power, sin(ang) * power, explosionColor);
+    f.life = random(80, 150);
+    f.size = random(3, 5);
+    fragments.push(f);
   }
 }
 
@@ -337,6 +386,13 @@ function getRandomCountdown() {
 }
 
 function prepareMessageTargets(centerX, centerY) {
+  // 在创建新文字前，如果已有文字，先强制爆炸消失
+  if (msgParticles.length > 0) {
+    console.log("强制清除之前的文字");
+    createMassiveExplosion();
+    msgParticles = [];
+  }
+  
   let gfx = createGraphics(width * 2, height * 2);
   gfx.pixelDensity(1);
   gfx.background(0, 0);
@@ -351,7 +407,7 @@ function prepareMessageTargets(centerX, centerY) {
   // 在canvas中心绘制文字
   gfx.text(msgString, gfx.width / 2, gfx.height / 2);
 
-  const step = 4;
+  const step = 8;
   msgTargets = [];
   
   gfx.loadPixels();
@@ -406,6 +462,9 @@ function prepareMessageTargets(centerX, centerY) {
   }
 
   msgParticles = shuffleArray(msgParticles);
+  
+  // 重置文字状态
+  isMessageActive = false;
 }
 
 function shuffleArray(array) {
